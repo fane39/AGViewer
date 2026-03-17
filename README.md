@@ -1,6 +1,6 @@
 # AGViewer - AmigaGuide Viewer for Python
 
-AGViewer is a robust, lightweight AmigaGuide (`.guide`) file viewer implemented in Python using Tkinter. It aims to provide an authentic Amiga-like reading experience on modern operating systems, supporting complex node navigation, text formatting, and interactive commands.
+AGViewer is a robust, lightweight AmigaGuide (`.guide`) file viewer implemented in Python using Tkinter. It aims to provide an authentic Amiga-like reading experience on modern operating systems, supporting complex node navigation, text formatting, and interactive commands. Made with the help of AI.
 
 ## Features
 
