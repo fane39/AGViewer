@@ -23,23 +23,39 @@ class IFFDecoder:
         self.decode()
 
     def decode(self):
-        if self.data[:4] != b'FORM' or self.data[8:12] != b'ILBM':
+        if len(self.data) < 12 or self.data[:4] != b'FORM' or self.data[8:12] != b'ILBM':
             raise ValueError("Not a valid IFF ILBM file")
         pos = 12
-        while pos < len(self.data):
+        while pos + 8 <= len(self.data):
             chunk_id = self.data[pos:pos+4]
-            chunk_size = struct.unpack(">I", self.data[pos+4:pos+8])[0]
-            chunk_data = self.data[pos+8:pos+8+chunk_size]
+            try:
+                chunk_size = struct.unpack(">I", self.data[pos+4:pos+8])[0]
+            except struct.error:
+                break
+            pos += 8
+            if pos + chunk_size > len(self.data):
+                # Handle malformed/truncated file: process what we have
+                chunk_data = self.data[pos:]
+            else:
+                chunk_data = self.data[pos:pos+chunk_size]
+            
             if chunk_id == b'BMHD':
-                self.width, self.height, _, _, self.planes, _, self.compression = struct.unpack(">HHhhBBB", chunk_data[:11])
+                if len(chunk_data) >= 11:
+                    try:
+                        self.width, self.height, _, _, self.planes, _, self.compression = struct.unpack(">HHhhBBB", chunk_data[:11])
+                    except struct.error:
+                        pass
             elif chunk_id == b'CMAP':
                 self.palette = [chunk_data[i:i+3] for i in range(0, len(chunk_data), 3)]
             elif chunk_id == b'BODY':
                 self.decode_body(chunk_data)
-            pos += 8 + chunk_size
+            
+            pos += len(chunk_data)
             if chunk_size % 2 != 0: pos += 1
 
     def decode_body(self, data):
+        if self.width <= 0 or self.height <= 0 or self.planes <= 0:
+            return
         bytes_per_row = ((self.width + 15) // 16) * 2
         expected_size = bytes_per_row * self.planes * self.height
         raw_data = self.decompress_byterun1(data, expected_size) if self.compression == 1 else data
@@ -48,7 +64,13 @@ class IFFDecoder:
             row_start = y * bytes_per_row * self.planes
             row_indices = [0] * self.width
             for p in range(self.planes):
-                plane_data = raw_data[row_start + (p * bytes_per_row) : row_start + (p + 1) * bytes_per_row]
+                start = row_start + (p * bytes_per_row)
+                end = start + bytes_per_row
+                if start >= len(raw_data):
+                    plane_data = b''
+                else:
+                    plane_data = raw_data[start:min(end, len(raw_data))]
+                
                 for x in range(self.width):
                     byte_idx, bit_idx = x // 8, 7 - (x % 8)
                     if byte_idx < len(plane_data):
@@ -62,9 +84,16 @@ class IFFDecoder:
             n = data[i]; i += 1
             if n > 127: n -= 256
             if 0 <= n <= 127:
-                count = n + 1; out.extend(data[i:i+count]); i += count
+                count = n + 1
+                if i + count > len(data): count = len(data) - i
+                out.extend(data[i:i+count]); i += count
             elif -127 <= n <= -1:
-                count, val = -n + 1, data[i]; i += 1; out.extend([val] * count)
+                count = -n + 1
+                if i < len(data):
+                    val = data[i]; i += 1
+                    out.extend([val] * count)
+                else:
+                    break
         return out
 
 class ImageViewer(tk.Toplevel):
@@ -110,7 +139,7 @@ class ImageViewer(tk.Toplevel):
 class AGViewer:
     """A Tkinter-based viewer for Amiga Guide files."""
     NODE_PATTERN = re.compile(r'@node\s+(?P<name>"[^"]*"|[\w\.]+)(?:\s+(?P<title>"[^"]*"|[^\s\n]+))?.*?\n(?P<body>.*?)(?=\n@endnode|@endnode|\n@node|$)', re.DOTALL | re.IGNORECASE)
-    TAG_PATTERN = re.compile(r'@\{\s*(?:(?P<label>"[^"]*"|[^\s}]+)\s+(?P<type>\w+)\s+(?P<target>"[^"]*"|[^\s}]+)(?:\s+(?P<line>\d+))?|(?P<cmd>\w+)(?:\s+(?P<arg>\w+))?)\s*\}', re.IGNORECASE)
+    TAG_PATTERN = re.compile(r'@\{\s*(?:(?P<label>"[^"]*"|[^\s}]+)\s+(?P<type>\w+)\s+(?P<target>"[^"]*"|[^\s}]+)(?:\s+(?P<line>\d+))?|(?P<cmd>[^\s}]+)(?:\s+(?P<arg>[^\s}]+))?)\s*\}', re.IGNORECASE)
 
     def __init__(self, root):
         self.root = root; self.root.title("AGViewer")
@@ -122,8 +151,8 @@ class AGViewer:
         self.index_btn = tk.Button(self.btn_frame, text="Index", command=self.go_index, state="disabled", relief="flat", bg="#ddd"); self.index_btn.pack(side="left", padx=2)
         tk.Button(self.btn_frame, text="Help", command=self.go_help, relief="flat", bg="#ddd").pack(side="left", padx=2)
         self.retrace_btn = tk.Button(self.btn_frame, text="Retrace", command=self.go_back, state="disabled", relief="flat", bg="#ddd"); self.retrace_btn.pack(side="left", padx=2)
-        self.prev_btn = tk.Button(self.btn_frame, text="Browse <", command=self.go_prev, state="disabled", relief="flat", bg="#ddd"); self.prev_btn.pack(side="left", padx=2)
-        self.next_btn = tk.Button(self.btn_frame, text="Browse >", command=self.go_next, state="disabled", relief="flat", bg="#ddd"); self.next_btn.pack(side="left", padx=2)
+        self.prev_btn = tk.Button(self.btn_frame, text="Browse <", command=self.go_prev, state="disabled", relief="flat", bg="#ddd"); self.prev_btn.config(state="disabled"); self.prev_btn.pack(side="left", padx=2)
+        self.next_btn = tk.Button(self.btn_frame, text="Browse >", command=self.go_next, state="disabled", relief="flat", bg="#ddd"); self.next_btn.config(state="disabled"); self.next_btn.pack(side="left", padx=2)
         tk.Button(self.btn_frame, text="Copy", command=self.copy_text, relief="flat", bg="#ddd").pack(side="right", padx=5)
         tk.Button(self.btn_frame, text="Find", command=self.find_text, relief="flat", bg="#ddd").pack(side="right", padx=5)
         self.raw_btn = tk.Button(self.btn_frame, text="Raw", command=self.toggle_raw, relief="flat", bg="#ddd"); self.raw_btn.pack(side="right", padx=5)
@@ -198,7 +227,8 @@ class AGViewer:
             try:
                 with open(file_path, "rb") as f:
                     head = f.read(12)
-                    if head.startswith(b'FORM') and head.endswith(b'ILBM'): ImageViewer(self.root, file_path); return False
+                    if len(head) == 12 and head.startswith(b'FORM') and head[8:12] == b'ILBM':
+                        ImageViewer(self.root, file_path); return False
                 with codecs.open(file_path, 'r', 'iso-8859-1') as file:
                     content = file.read().replace('\r\n', '\n'); self.parse_guide(content); self.current_file_path = os.path.abspath(file_path)
                     if clear_history: self.history = []; self.retrace_btn.config(state="disabled")
