@@ -53,5 +53,3 @@ This project is open-source. Feel free to modify and adapt it for your own needs
 
 ---
 *Created to keep the spirit of Amiga computing alive on modern systems.*
-# AGViewer
-AGViewer is a robust, lightweight AmigaGuide (`.guide`) file viewer implemented in Python using Tkinter
