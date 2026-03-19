@@ -139,12 +139,13 @@ class ImageViewer(tk.Toplevel):
 class AGViewer:
     """A Tkinter-based viewer for Amiga Guide files."""
     NODE_PATTERN = re.compile(r'@node\s+(?P<name>"[^"]*"|[\w\.]+)(?:\s+(?P<title>"[^"]*"|[^\s\n]+))?.*?\n(?P<body>.*?)(?=\n@endnode|@endnode|\n@node|$)', re.DOTALL | re.IGNORECASE)
-    TAG_PATTERN = re.compile(r'@\{\s*(?:(?P<label>"[^"]*"|[^\s}]+)\s+(?P<type>\w+)\s+(?P<target>"[^"]*"|[^\s}]+)(?:\s+(?P<line>\d+))?|(?P<cmd>[^\s}]+)(?:\s+(?P<arg>[^\s}]+))?)\s*\}', re.IGNORECASE)
+    TAG_PATTERN = re.compile(r'@\{\s*(?:(?P<label>"[^"]*"|[^\s}]+)\s+(?P<type>\w+)\s+(?P<target>"[^"]*"|[^}]+?)(?:\s+(?P<line>\d+))?|(?P<cmd>[^\s}]+)(?:\s+(?P<arg>[^\s}]+))?)\s*\}', re.IGNORECASE)
+    SUPPORTED_EXTENSIONS = {'.guide', '.iff', '.ilbm', '.lbm', '.ham'}
 
     def __init__(self, root):
         self.root = root; self.root.title("AGViewer")
         self.nodes, self.node_list, self.history = {}, [], []
-        self.current_node_name, self.current_file_path, self.raw_mode, self.link_counter = None, None, False, 0
+        self.current_node_name, self.current_file_path, self.raw_mode, self.wordwrap_mode, self.link_counter = None, None, False, False, 0
         self.btn_frame = tk.Frame(root, bg="#f0f0f0", pady=5); self.btn_frame.pack(side="top", fill="x")
         tk.Button(self.btn_frame, text="Open", command=self.open_file, relief="flat", bg="#ddd").pack(side="left", padx=2)
         self.contents_btn = tk.Button(self.btn_frame, text="Contents", command=self.go_home, state="disabled", relief="flat", bg="#ddd"); self.contents_btn.pack(side="left", padx=2)
@@ -155,6 +156,7 @@ class AGViewer:
         self.next_btn = tk.Button(self.btn_frame, text="Browse >", command=self.go_next, state="disabled", relief="flat", bg="#ddd"); self.next_btn.config(state="disabled"); self.next_btn.pack(side="left", padx=2)
         tk.Button(self.btn_frame, text="Copy", command=self.copy_text, relief="flat", bg="#ddd").pack(side="right", padx=5)
         tk.Button(self.btn_frame, text="Find", command=self.find_text, relief="flat", bg="#ddd").pack(side="right", padx=5)
+        self.wrap_btn = tk.Button(self.btn_frame, text="No Wrap", command=self.toggle_wordwrap, relief="flat", bg="#ddd"); self.wrap_btn.pack(side="right", padx=5)
         self.raw_btn = tk.Button(self.btn_frame, text="Raw", command=self.toggle_raw, relief="flat", bg="#ddd"); self.raw_btn.pack(side="right", padx=5)
         self.status_var = tk.StringVar(value="Ready")
         tk.Label(root, textvariable=self.status_var, bd=1, relief="sunken", anchor="w", font=("Segoe UI", 9)).pack(side="bottom", fill="x")
@@ -198,6 +200,11 @@ class AGViewer:
     def toggle_raw(self):
         self.raw_mode = not self.raw_mode
         self.raw_btn.config(text="Formatted" if self.raw_mode else "Raw")
+        if self.current_node_name: self.show_node(self.current_node_name, add_to_history=False)
+
+    def toggle_wordwrap(self):
+        self.wordwrap_mode = not self.wordwrap_mode
+        self.wrap_btn.config(text="Wrap" if self.wordwrap_mode else "No Wrap")
         if self.current_node_name: self.show_node(self.current_node_name, add_to_history=False)
 
     def find_text(self):
@@ -258,7 +265,7 @@ class AGViewer:
         if node_name == self.current_node_name and add_to_history: return
         if node_name not in self.nodes: messagebox.showwarning("Missing Node", f"Node '{node_name}' not found."); return
         if add_to_history and self.current_node_name: self.history.append((self.current_file_path, self.current_node_name)); self.retrace_btn.config(state="normal")
-        self.current_node_name, node = node_name, self.nodes[node_name]; self.root.title(f"AGViewer - {node['title']}"); is_wrapped = node['wordwrap'] or node['smartwrap']
+        self.current_node_name, node = node_name, self.nodes[node_name]; self.root.title(f"AGViewer - {node['title']}"); is_wrapped = self.wordwrap_mode
         self.text_widget.config(wrap="word" if is_wrapped else "none", state="normal"); self.text_widget.delete(1.0, tk.END)
         if self.raw_mode: self.text_widget.insert(tk.END, node['body'])
         else:
@@ -341,6 +348,11 @@ class AGViewer:
             idx = self.node_list.index(self.current_node_name)
             if idx > 0: self.show_node(self.node_list[idx-1])
 
+    def is_file_supported(self, file_path):
+        """Check if file type is supported by AGViewer."""
+        _, ext = os.path.splitext(file_path.lower())
+        return ext in self.SUPPORTED_EXTENSIONS
+
     def on_link_click(self, event):
         idx = self.text_widget.index(f"@{event.x},{event.y}")
         for tag in self.text_widget.tag_names(idx):
@@ -367,6 +379,11 @@ class AGViewer:
             possible_paths = [os.path.join(base, filename), os.path.join(base, filename + ".guide"), os.path.join(base, target), os.path.join(base, target + ".guide")]
             for path in possible_paths:
                 if os.path.exists(path) and os.path.isfile(path):
+                    # Check if file type is supported
+                    if not self.is_file_supported(path):
+                        _, ext = os.path.splitext(path)
+                        messagebox.showwarning("Unsupported File Type", f"Cannot open '{os.path.basename(path)}'.\n\nFile type '{ext if ext else 'unknown'}' is not supported.\n\nSupported formats: {', '.join(sorted(self.SUPPORTED_EXTENSIONS))}")
+                        return
                     abs_path = os.path.abspath(path)
                     if abs_path != self.current_file_path:
                         if not self.open_file(abs_path, False, False):
