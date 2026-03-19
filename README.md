@@ -60,4 +60,4 @@ AGViewer is a robust, lightweight AmigaGuide (`.guide`) file viewer implemented 
 This project is open-source. Feel free to modify and adapt it for your own needs.
 
 ---
-*Created to keep the spirit of Amiga computing alive on modern systems. Developed in collaboration with Gemini CLI.*
+*Created to keep the spirit of Amiga computing alive on modern systems. Developed in collaboration with Gemini CLI and GitHub Copilot*
